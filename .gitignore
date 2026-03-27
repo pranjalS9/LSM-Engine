@@ -1,0 +1,11 @@
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# Gradle
+gradle/wrapper/gradle-wrapper.jar
+gradlew.bat
+
+# Build output
+build/
+.gradle/

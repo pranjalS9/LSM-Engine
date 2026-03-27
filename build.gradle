@@ -1,0 +1,24 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+group = 'lsm'
+version = '0.1.0'
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+repositories {
+    mavenCentral()
+}
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+test {
+    useJUnitPlatform()
+}
+application {
+    mainClass = 'lsm.Main'
+}

@@ -1,4 +1,4 @@
-package lsm.ssTable;
+package lsm.sstable;
 
 import lsm.common.Value;
 

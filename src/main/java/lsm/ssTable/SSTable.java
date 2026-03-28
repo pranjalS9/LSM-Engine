@@ -1,4 +1,4 @@
-package lsm.ssTable;
+package lsm.sstable;
 
 /**
  *  An SSTable (Sorted String Table) is an immutable, sorted file on disk produced when the MemTable is flushed.

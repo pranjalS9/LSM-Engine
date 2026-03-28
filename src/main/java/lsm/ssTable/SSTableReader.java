@@ -1,4 +1,4 @@
-package lsm.ssTable;
+package lsm.sstable;
 
 import java.io.Closeable;
 import java.io.IOException;

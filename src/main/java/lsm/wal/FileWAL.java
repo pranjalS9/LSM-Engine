@@ -198,6 +198,28 @@ public final class FileWAL implements WAL {
         channel.close();
     }
 
+    @Override
+    public void truncate() throws IOException {
+        lock.lock();
+        try {
+            // Wait until syncer has fsynced all pending appends so nothing is lost.
+            while (!closed && durableLsn < appendedLsn) {
+                try {
+                    durableAdvanced.await();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("interrupted during WAL truncation", ie);
+                }
+            }
+            channel.truncate(0);
+            channel.position(0);
+            appendedLsn = 0;
+            durableLsn = 0;
+        } finally {
+            lock.unlock();
+        }
+    }
+
     private void writeFully(ByteBuffer buf) throws IOException {
         while (buf.hasRemaining()) {
             channel.write(buf);

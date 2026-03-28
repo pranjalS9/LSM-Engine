@@ -34,6 +34,14 @@ public interface WAL extends Closeable {
     default void sync() throws IOException {
     }
 
+    /**
+     * Truncates the WAL to zero after a successful flush.
+     * Safe to call only after the manifest has been persisted — on recovery,
+     * SSTables are loaded first so the truncated records are not needed.
+     */
+    default void truncate() throws IOException {
+    }
+
     @Override
     void close() throws IOException;
 }

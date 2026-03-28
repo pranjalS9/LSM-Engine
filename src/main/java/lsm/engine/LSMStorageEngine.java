@@ -188,10 +188,10 @@ public final class LSMStorageEngine implements StorageEngine {
 
         sstablesNewestFirst.add(0, new SSTableHandle(out, bloomPath, minKey, maxKey, bloom));
         memtable = new SkipListMemtable();
-        // WAL truncation/rotation will be added when we introduce a manifest/checkpoint.
 
         maybeTierColdSstables();
         persistManifest();
+        wal.truncate();
     }
 
     @Override

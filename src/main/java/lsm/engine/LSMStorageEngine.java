@@ -24,6 +24,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -159,6 +160,48 @@ public final class LSMStorageEngine implements StorageEngine {
         if (memtable.approximateBytes() >= config.memtableMaxBytes()) {
             flush();
         }
+    }
+
+    @Override
+    public synchronized Iterator<Map.Entry<byte[], byte[]>> scan(byte[] startKey, byte[] endKey) throws IOException {
+        ensureOpen();
+
+        // Merge all sources into a TreeMap: last write wins (highest sequence).
+        // MemTable is newest so it goes first; SSTables are iterated newest-first.
+        TreeMap<byte[], Value> merged = new TreeMap<>(ByteArrayComparator.INSTANCE);
+
+        // SSTables oldest-first so newer SSTables overwrite older ones in the map.
+        for (int i = sstablesNewestFirst.size() - 1; i >= 0; i--) {
+            SSTableHandle h = sstablesNewestFirst.get(i);
+            try (SimpleSSTableScanner scanner = new SimpleSSTableScanner(h.sstablePath())) {
+                for (SimpleSSTableScanner.Record r : scanner) {
+                    if (!inRange(r.key(), startKey, endKey)) continue;
+                    merged.merge(r.key(), r.value(), (existing, incoming) ->
+                            incoming.sequence() > existing.sequence() ? incoming : existing);
+                }
+            }
+        }
+
+        // MemTable is newest — overwrites any SSTable entry for the same key.
+        var memIt = memtable.iterator();
+        while (memIt.hasNext()) {
+            var e = memIt.next();
+            if (!inRange(e.getKey(), startKey, endKey)) continue;
+            merged.merge(e.getKey(), e.getValue(), (existing, incoming) ->
+                    incoming.sequence() > existing.sequence() ? incoming : existing);
+        }
+
+        // Build final result: skip tombstones, return raw byte[] values.
+        return merged.entrySet().stream()
+                .filter(e -> !e.getValue().isTombstone())
+                .map(e -> (Map.Entry<byte[], byte[]>) Map.entry(e.getKey(), e.getValue().valueBytes()))
+                .iterator();
+    }
+
+    private static boolean inRange(byte[] key, byte[] startKey, byte[] endKey) {
+        if (startKey != null && ByteArrayComparator.INSTANCE.compare(key, startKey) < 0) return false;
+        if (endKey != null && ByteArrayComparator.INSTANCE.compare(key, endKey) > 0) return false;
+        return true;
     }
 
     @Override

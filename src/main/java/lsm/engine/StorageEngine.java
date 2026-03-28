@@ -2,6 +2,8 @@ package lsm.engine;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Optional;
 
 // public contract for the entire LSM Engine
@@ -29,6 +31,13 @@ public interface StorageEngine extends Closeable {
 
     // Mark a key as deleted (LSM uses tombstones, not immediate removal)
     void delete(byte[] key) throws IOException;
+
+    // Returns all key-value pairs where startKey <= key <= endKey, in sorted order.
+    // Null startKey means scan from the beginning; null endKey means scan to the end.
+    // Tombstoned (deleted) keys are not returned.
+    default Iterator<Map.Entry<byte[], byte[]>> scan(byte[] startKey, byte[] endKey) throws IOException {
+        throw new UnsupportedOperationException("scan not implemented");
+    }
 
     // Force the in-memory buffer (MemTable) to be written to disk as an SSTable
     /*

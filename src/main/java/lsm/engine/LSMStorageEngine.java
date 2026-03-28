@@ -255,7 +255,8 @@ public final class LSMStorageEngine implements StorageEngine {
              SimpleSSTableScanner sb = new SimpleSSTableScanner(b.sstablePath());
              SimpleSSTableWriter w = new SimpleSSTableWriter(out, options.sparseIndexEveryN(), bloom)) {
 
-            Iterator<Map.Entry<byte[], Value>> merged = merged(sa.iterator(), sb.iterator());
+            boolean isBottommost = sstablesNewestFirst.size() <= 2;
+            Iterator<Map.Entry<byte[], Value>> merged = merged(sa.iterator(), sb.iterator(), isBottommost);
             w.writeAll(merged);
         }
 
@@ -276,7 +277,8 @@ public final class LSMStorageEngine implements StorageEngine {
     }
 
     private static Iterator<Map.Entry<byte[], Value>> merged(Iterator<SimpleSSTableScanner.Record> a,
-                                                             Iterator<SimpleSSTableScanner.Record> b) {
+                                                             Iterator<SimpleSSTableScanner.Record> b,
+                                                             boolean dropTombstones) {
         return new Iterator<>() {
             SimpleSSTableScanner.Record ra = a.hasNext() ? a.next() : null;
             SimpleSSTableScanner.Record rb = b.hasNext() ? b.next() : null;
@@ -300,23 +302,35 @@ public final class LSMStorageEngine implements StorageEngine {
             }
 
             private Map.Entry<byte[], Value> computeNext() {
-                if (ra == null && rb == null) return null;
-                if (ra == null) return takeB();
-                if (rb == null) return takeA();
-                int cmp = ByteArrayComparator.INSTANCE.compare(ra.key(), rb.key());
-                if (cmp < 0) return takeA();
-                if (cmp > 0) return takeB();
-
-                // Same key: keep higher sequence.
-                Value va = ra.value();
-                Value vb = rb.value();
-                Map.Entry<byte[], Value> out = Map.entry(
-                        ra.key(),
-                        (va.sequence() >= vb.sequence()) ? va : vb
-                );
-                ra = a.hasNext() ? a.next() : null;
-                rb = b.hasNext() ? b.next() : null;
-                return out;
+                while (true) {
+                    if (ra == null && rb == null) return null;
+                    Map.Entry<byte[], Value> candidate;
+                    if (ra == null) {
+                        candidate = takeB();
+                    } else if (rb == null) {
+                        candidate = takeA();
+                    } else {
+                        int cmp = ByteArrayComparator.INSTANCE.compare(ra.key(), rb.key());
+                        if (cmp < 0) {
+                            candidate = takeA();
+                        } else if (cmp > 0) {
+                            candidate = takeB();
+                        } else {
+                            // Same key: keep higher sequence.
+                            Value va = ra.value();
+                            Value vb = rb.value();
+                            candidate = Map.entry(
+                                    ra.key(),
+                                    (va.sequence() >= vb.sequence()) ? va : vb
+                            );
+                            ra = a.hasNext() ? a.next() : null;
+                            rb = b.hasNext() ? b.next() : null;
+                        }
+                    }
+                    // Drop tombstones at the bottommost level — no older data exists below.
+                    if (dropTombstones && candidate.getValue().isTombstone()) continue;
+                    return candidate;
+                }
             }
 
             private Map.Entry<byte[], Value> takeA() {

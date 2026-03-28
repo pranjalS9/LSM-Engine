@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.zip.CRC32;
 
 import static java.nio.ByteOrder.BIG_ENDIAN;
 
@@ -126,13 +127,13 @@ public final class SimpleSSTableReader implements SSTableReader {
 
     private Entry readEntryAt(long position) throws IOException {
         try {
-            ByteBuffer header = ByteBuffer.allocate(4 + 4 + 8).order(BIG_ENDIAN);
-            readFully(header, position);
-            header.flip();
+            byte[] headerBytes = new byte[4 + 4 + 8];
+            readFully(ByteBuffer.wrap(headerBytes), position);
+            ByteBuffer header = ByteBuffer.wrap(headerBytes).order(BIG_ENDIAN);
             int keyLen = header.getInt();
             int valLen = header.getInt();
-            header.getLong(); // seq (unused in this phase)
-            long pos = position + header.capacity();
+            header.getLong(); // seq
+            long pos = position + headerBytes.length;
             if (keyLen < 0 || keyLen > 128 * 1024 * 1024) return null;
             if (valLen < -1 || valLen > 1024 * 1024 * 1024) return null;
 
@@ -146,6 +147,21 @@ public final class SimpleSSTableReader implements SSTableReader {
                 readFully(ByteBuffer.wrap(value), pos);
                 pos += valLen;
             }
+
+            // Verify CRC32
+            ByteBuffer crcBuf = ByteBuffer.allocate(4).order(BIG_ENDIAN);
+            readFully(crcBuf, pos);
+            crcBuf.flip();
+            int storedCrc = crcBuf.getInt();
+            CRC32 crc = new CRC32();
+            crc.update(headerBytes);
+            crc.update(key);
+            if (valLen >= 0) crc.update(value);
+            if ((int) crc.getValue() != storedCrc) {
+                throw new IOException("SSTable checksum mismatch at offset " + position);
+            }
+            pos += 4;
+
             return new Entry(key, valLen, value, pos);
         } catch (EOFException eof) {
             return null;

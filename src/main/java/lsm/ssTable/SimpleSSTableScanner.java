@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.zip.CRC32;
 
 import static java.nio.ByteOrder.BIG_ENDIAN;
 
@@ -50,13 +51,13 @@ public final class SimpleSSTableScanner implements Iterable<SimpleSSTableScanner
             private Record readNext() {
                 if (pos >= dataEndOffset) return null;
                 try {
-                    ByteBuffer header = ByteBuffer.allocate(4 + 4 + 8).order(BIG_ENDIAN);
-                    readFully(header, pos);
-                    header.flip();
+                    byte[] headerBytes = new byte[4 + 4 + 8];
+                    readFully(ByteBuffer.wrap(headerBytes), pos);
+                    ByteBuffer header = ByteBuffer.wrap(headerBytes).order(BIG_ENDIAN);
                     int keyLen = header.getInt();
                     int valLen = header.getInt();
                     long seq = header.getLong();
-                    long p = pos + header.capacity();
+                    long p = pos + headerBytes.length;
                     if (keyLen < 0) return null;
                     byte[] key = new byte[keyLen];
                     readFully(ByteBuffer.wrap(key), p);
@@ -67,7 +68,19 @@ public final class SimpleSSTableScanner implements Iterable<SimpleSSTableScanner
                         readFully(ByteBuffer.wrap(valueBytes), p);
                         p += valLen;
                     }
-                    pos = p;
+
+                    // Verify CRC32
+                    ByteBuffer crcBuf = ByteBuffer.allocate(4).order(BIG_ENDIAN);
+                    readFully(crcBuf, p);
+                    crcBuf.flip();
+                    int storedCrc = crcBuf.getInt();
+                    CRC32 crc = new CRC32();
+                    crc.update(headerBytes);
+                    crc.update(key);
+                    if (valLen >= 0) crc.update(valueBytes);
+                    if ((int) crc.getValue() != storedCrc) return null; // corrupt record — stop scan
+
+                    pos = p + 4;
                     Value v = (valLen < 0) ? Value.tombstone(seq) : Value.put(valueBytes, seq);
                     return new Record(key, v);
                 } catch (EOFException eof) {

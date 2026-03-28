@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import lsm.bloom.BloomFilter;
+import java.util.zip.CRC32;
 
 import static java.nio.ByteOrder.BIG_ENDIAN;
 
@@ -22,7 +22,7 @@ import static java.nio.ByteOrder.BIG_ENDIAN;
  *
  *   File layout:
  *
- *   [record 0: keyLen(4) | valLen(4) | seq(8) | key | value]
+ *   [record 0: keyLen(4) | valLen(4) | seq(8) | key | value | crc32(4)]
  *   [record 1: ...]
  *   [record 2: ...]
  *   ...
@@ -77,14 +77,24 @@ public final class SimpleSSTableWriter implements SSTableWriter {
             int keyLen = key.length;
             int valLen = (valueBytes == null) ? -1 : valueBytes.length;
 
-            ByteBuffer header = ByteBuffer.allocate(4 + 4 + 8).order(BIG_ENDIAN);
+            byte[] headerBytes = new byte[4 + 4 + 8];
+            ByteBuffer header = ByteBuffer.wrap(headerBytes).order(BIG_ENDIAN);
             header.putInt(keyLen);
             header.putInt(valLen);
             header.putLong(v.sequence());
-            header.flip();
-            writeFully(header);
+
+            CRC32 crc = new CRC32();
+            crc.update(headerBytes);
+            crc.update(key);
+            if (valLen >= 0) crc.update(valueBytes);
+
+            writeFully(ByteBuffer.wrap(headerBytes));
             writeFully(ByteBuffer.wrap(key));
             if (valLen >= 0) writeFully(ByteBuffer.wrap(valueBytes));
+            ByteBuffer crcBuf = ByteBuffer.allocate(4).order(BIG_ENDIAN);
+            crcBuf.putInt((int) crc.getValue());
+            crcBuf.flip();
+            writeFully(crcBuf);
         }
     }
 

@@ -30,8 +30,8 @@ public final class FileWAL implements WAL {
     private final Condition appendedOrClosed = lock.newCondition();
     private final Condition durableAdvanced = lock.newCondition();
     private volatile boolean closed = false;
-    private long appendedLsn = 0; // position after latest append (in OS buffer)
-    private long durableLsn = 0; // position confirmed flushed to disk via fsync
+    private long appendedLsn = 0;
+    private long durableLsn = 0;
     private final Thread syncer;
 
     private FileWAL(Path path, FileChannel channel, long groupCommitMaxDelayMillis) throws IOException {
